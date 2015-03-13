@@ -51,10 +51,17 @@ module Tree
 		def execute
 			options = Options.parse! @argv
 			raise ArgumentError, "Directory Not Found: #{options[:path]}" unless Dir.exist? options[:path]
+			ignore_path = Pathname.new('~/.treeignore').expand_path
+			ignore =
+				if ignore_path.file?
+					File.read(ignore_path.to_path).split "\n"
+				else
+					[]
+				end
 
 			Dir.open options[:path] do |dir|
 				structure = check_structure dir
-				structure_str = make_structure_str structure, Pathname.new(options[:path]).basename.to_path
+				structure_str = make_structure_str structure, Pathname.new(options[:path]).basename.to_path, ignore
 				puts structure_str
 
 				File.open options[:filename], 'w' do |f|
@@ -86,64 +93,69 @@ module Tree
 			result
 		end
 
-		def make_structure_str(structure, dir_name)
+		def make_structure_str(structure, dir_name, ignore)
 			result = "#{dir_name}/ "
-			space_size = result.size + full_width_count(result)
-			first_line = true
-			last_line = false
 
-			structure[:files].each_with_index do |file, index|
-				if first_line
-					if structure.keys.size == 1 and structure[:files].size == 1
-						result += "━ #{file}\n"
+			unless ignore.include? dir_name
+				space_size = result.size + full_width_count(result)
+				first_line = true
+				last_line = false
+
+				structure[:files].each_with_index do |file, index|
+					if first_line
+						if structure.keys.size == 1 and structure[:files].size == 1
+							result += "━ #{file}\n"
+						else
+							result += "┳ #{file}\n"
+						end
+						first_line = false
+					elsif structure.keys.size == 1 and index == structure[:files].size - 1
+						result += " " * space_size + "┗ #{file}\n"
+						last_line = true
 					else
-						result += "┳ #{file}\n"
+						result += " " * space_size + "┣ #{file}\n"
 					end
-					first_line = false
-				elsif structure.keys.size == 1 and index == structure[:files].size - 1
-					result += " " * space_size + "┗ #{file}\n"
-					last_line = true
-				else
-					result += " " * space_size + "┣ #{file}\n"
 				end
-			end
 
-			(structure.keys - [:files]).each_with_index do |key, index|
-				nested_structure = make_structure_file structure[key], key.to_s
+				(structure.keys - [:files]).each_with_index do |key, index|
+					nested_structure = make_structure_str structure[key], key.to_s, ignore
 
-				nested_structure.each_line.with_index do |line, i|
+					nested_structure.each_line.with_index do |line, i|
 
-					if i == 0
+						if i == 0
 
-						if first_line
-							if structure.keys.size == 2
-								result += "━ #{line}"
-							else 
-								result += "┳ #{line}"
+							if first_line
+								if structure.keys.size == 2
+									result += "━ #{line}"
+								else 
+									result += "┳ #{line}"
+								end
+								first_line = false
+							elsif index == structure.keys.size - 2
+								result += " " * space_size + "┗ #{line}"
+								last_line = true
+							else
+								result += " " * space_size + "┣ #{line}"
 							end
-							first_line = false
-						elsif index == structure.keys.size - 2
-							result += " " * space_size + "┗ #{line}"
-							last_line = true
-						else
-							result += " " * space_size + "┣ #{line}"
-						end
 
-					else
-
-						if last_line
-							result += " " * (space_size + 2) + line
 						else
-							result += " " * space_size + "┃ #{line}"
+
+							if last_line
+								result += " " * (space_size + 2) + line
+							else
+								result += " " * space_size + "┃ #{line}"
+							end
+
 						end
 
 					end
 
 				end
 
-			end
-
-			if structure[:files].size == 0 and structure.keys.size == 1
+				if structure[:files].size == 0 and structure.keys.size == 1
+					result += "\n"
+				end
+			else
 				result += "\n"
 			end
 
